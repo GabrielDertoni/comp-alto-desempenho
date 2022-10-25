@@ -135,12 +135,13 @@ void compute_all_statistics(int *mat, int r, int c, int a,
     indexed_val_t reg_argmax  = { .index = -1, .val = -1 };
     indexed_val_t city_argmax = { .index = -1, .val = -1 };
 
+    int t = omp_get_num_threads();
+
     #pragma omp parallel for           \
         reduction(argmax:reg_argmax)   \
         reduction(argmax:city_argmax)  \
         reduction(+:pref_sum[:128])    \
-        schedule(static, r/12)         \
-        num_threads(12)
+        schedule(static, r/t)
     for (int reg = 0; reg < r; reg++) {
         for (int city = 0; city < c; city++) {
             const int i = reg * ngrades_per_region + city * a;
@@ -153,8 +154,10 @@ void compute_all_statistics(int *mat, int r, int c, int a,
             compute_statistics_from_sums(sums, &min_city[j], &max_city[j],
                     &median_city[j], &mean_city[j], &stdev_city[j]);
 
-            if (city_argmax.val < mean_city[j])
+            if (city_argmax.val < mean_city[j]) {
                 city_argmax.index = j;
+                city_argmax.val = mean_city[j];
+            }
 
             merge_sums_128(pref_sum, sums);
         }
@@ -229,12 +232,12 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    clock_t start_clock = clock();
+    double start_time = omp_get_wtime();
     compute_all_statistics(mat, r, c, a, min_city, max_city, median_city, mean_city, stdev_city,
                                 min_reg, max_reg, median_reg, mean_reg, stdev_reg,
                                 &min_total, &max_total, &median_total, &mean_total, &stdev_total, &best_reg,
                                 &best_city_reg, &best_city);
-    clock_t time_taken = clock() - start_clock;
+    double time_taken = omp_get_wtime() - start_time;
 
 #ifndef PERF
     for (int reg = 0; reg < r; reg++) {
@@ -294,7 +297,7 @@ int main(int argc, char *argv[]) {
     *(volatile int*)&best_city;
 #endif
 
-    printf("Tempo de resposta sem considerar E/S, em segundos: %.03lfs\n", (double)time_taken / CLOCKS_PER_SEC);
+    printf("Tempo de resposta sem considerar E/S, em segundos: %.03lfs\n", time_taken);
 
     free(mat);
     free(min_city);
