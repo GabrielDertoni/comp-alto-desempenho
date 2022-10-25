@@ -8,9 +8,9 @@ LDFLAGS := -lm
 all: studentsseq studentspar
 
 studentsseq: studentsseq.c
-	$(CC) -DPERF $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 studentspar: studentspar.c
-	$(CC) -DPERF $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 .PHONY: perf
