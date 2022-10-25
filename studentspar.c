@@ -250,7 +250,7 @@ int main(int argc, char *argv[]) {
     for (int reg = 0; reg < r; reg++) {
         printf(
             "Reg %d: menor: %d, maior: %d, mediana: %.02lf, média: %.02lf e DP: %.02lf\n",
-            reg, max_reg[reg], min_reg[reg], median_reg[reg], mean_reg[reg], stdev_reg[reg]
+            reg, min_reg[reg], max_reg[reg], median_reg[reg], mean_reg[reg], stdev_reg[reg]
         );
     }
     printf("\n");
