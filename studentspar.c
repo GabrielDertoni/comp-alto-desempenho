@@ -92,9 +92,9 @@ static inline void compute_statistics_from_sums(const int *restrict sums, int_fa
                                                 int_fast8_t *restrict max, double *restrict median,
                                                 double *restrict mean, double *restrict stdev) {
     const int n_occur = sums[N_GRADES-1];
-    int total = 0;
+    int64_t total = 0;
     int64_t total_sq = 0;
-    for (int i = 1; i < N_GRADES; i++) {
+    for (size_t i = 1; i < N_GRADES; i++) {
         int count = sums[i] - sums[i-1];
         total += count * i;
         total_sq += count * i * i;

@@ -75,9 +75,9 @@ static inline void compute_statistics_from_sums(const int *restrict sums, int_fa
                                                 int_fast8_t *restrict max, double *restrict median,
                                                 double *restrict mean, double *restrict stdev) {
     const int n_occur = sums[N_GRADES-1];
-    int total = 0;
+    int64_t total = 0;
     int64_t total_sq = 0;
-    for (int i = 1; i < N_GRADES; i++) {
+    for (size_t i = 1; i < N_GRADES; i++) {
         int count = sums[i] - sums[i-1];
         total += count * i;
         total_sq += count * i * i;
@@ -111,13 +111,13 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
 
     pref_sum_t sums_total;
     __builtin_memset(sums_total, 0, sizeof(sums_total));
-    for (int reg = 0; reg < r; reg++) {
+    for (size_t reg = 0; reg < r; reg++) {
         pref_sum_t sums_reg;
         __builtin_memset(sums_reg, 0, sizeof(sums_reg));
 
-        for (int city = 0; city < c; city++) {
-            const int i = reg * ngrades_per_region + city * a;
-            const int j = reg * c + city;
+        for (size_t city = 0; city < c; city++) {
+            const size_t i = reg * ngrades_per_region + city * a;
+            const size_t j = reg * c + city;
 
             pref_sum_t sums;
             __builtin_memset(sums, 0, sizeof(sums));
