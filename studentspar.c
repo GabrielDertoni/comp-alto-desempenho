@@ -124,8 +124,8 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
                             int *restrict best_city_reg, int *restrict best_city) {
     const size_t ngrades_per_region = c * a;
 
-    pref_sum_t pref_sum;
-    __builtin_memset(pref_sum, 0, sizeof(pref_sum));
+    pref_sum_t sums_total;
+    __builtin_memset(sums_total, 0, sizeof(sums_total));
 
     indexed_val_t reg_argmax  = { .index = -1, .val = -1 };
     indexed_val_t city_argmax = { .index = -1, .val = -1 };
@@ -135,9 +135,12 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
     #pragma omp parallel for           \
         reduction(argmax:reg_argmax)   \
         reduction(argmax:city_argmax)  \
-        reduction(+:pref_sum[:128])    \
+        reduction(+:sums_total[:128])    \
         schedule(static, r/t)
     for (int reg = 0; reg < r; reg++) {
+        pref_sum_t sums_reg;
+        __builtin_memset(sums_reg, 0, sizeof(sums_reg));
+
         for (int city = 0; city < c; city++) {
             const int i = reg * ngrades_per_region + city * a;
             const int j = reg * c + city;
@@ -147,18 +150,17 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
             counting_sort_accum_freq(mat + i, sums, a);
 
             compute_statistics_from_sums(sums, &min_city[j], &max_city[j],
-                    &median_city[j], &mean_city[j], &stdev_city[j]);
+                                         &median_city[j], &mean_city[j], &stdev_city[j]);
 
+            merge_sums_128(sums_reg, sums);
             if (city_argmax.val < mean_city[j]) {
                 city_argmax.index = j;
                 city_argmax.val = mean_city[j];
             }
-
-            merge_sums_128(pref_sum, sums);
         }
 
-        compute_statistics_from_sums(pref_sum, &min_reg[reg], &max_reg[reg],
-                &median_reg[reg], &mean_reg[reg], &stdev_reg[reg]);
+        compute_statistics_from_sums(sums_reg, &min_reg[reg], &max_reg[reg],
+                                     &median_reg[reg], &mean_reg[reg], &stdev_reg[reg]);
 
         merge_sums_128(sums_total, sums_reg);
         if (reg_argmax.val < mean_reg[reg]) {
@@ -167,7 +169,7 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
         }
     }
 
-    compute_statistics_from_sums(pref_sum, min_total, max_total,
+    compute_statistics_from_sums(sums_total, min_total, max_total,
                                  median_total, mean_total, stdev_total);
 
     *best_reg = reg_argmax.index;
