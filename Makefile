@@ -1,22 +1,22 @@
+# CC := gcc
+CC := clang
 OMPFLAGS := -fopenmp
 CFLAGS := -Wpedantic -Wall
-FASTFLAGS := -Ofast
+FASTFLAGS := -Ofast -mavx2
 DBGFLAGS := -fsanitize=address -g -DDEBUG
 LDFLAGS := -lm
 
-all: studentsseq_v2
+all: studentsseq studentspar
 
-# WARNING: REMOVER -DNO_OUT ANTES DE ENTREGAR O TRABALHO
 studentsseq: studentsseq.c
-	# gcc $(CFLAGS) $(FASTFLAGS) $^ -o $@ $(LDFLAGS)
-	# gcc $(CFLAGS) $(DBGFLAGS)  $^ -o $@ $(LDFLAGS)
-	gcc -DPERF -Ofast $(CFLAGS) -g -gdwarf-3 $^ -o $@ $(LDFLAGS)
+	# $(CC) -DPERF $(FASTFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) -DPERF $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+studentspar: studentspar.c
+	$(CC) -DPERF -g $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 studentsseq_v2: studentsseq_v2.c
-	# gcc $(CFLAGS) $(FASTFLAGS) $^ -o $@ $(LDFLAGS)
-	# gcc $(CFLAGS) $(DBGFLAGS)  $^ -o $@ $(LDFLAGS)
-	gcc -DPERF -g -Ofast -mavx2 $(CFLAGS) $^ -o $@ $(LDFLAGS)
-	# gcc -Ofast -mavx2 $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) -DPERF -g $(FASTFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 
 .PHONY: perf
