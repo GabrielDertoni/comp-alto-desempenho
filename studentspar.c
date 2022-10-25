@@ -130,15 +130,22 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
     indexed_val_t reg_argmax  = { .index = -1, .val = -1 };
     indexed_val_t city_argmax = { .index = -1, .val = -1 };
 
-    #pragma omp parallel for           \
-        reduction(argmax:reg_argmax)   \
-        reduction(argmax:city_argmax)  \
+    int t = omp_get_max_threads();
+
+    #pragma omp parallel for             \
+        reduction(argmax:reg_argmax)     \
+        reduction(argmax:city_argmax)    \
         reduction(+:sums_total[:128])    \
-        schedule(dynamic)
+        schedule(dynamic)                \
+        if(t <= r)
     for (int reg = 0; reg < r; reg++) {
         pref_sum_t sums_reg;
         __builtin_memset(sums_reg, 0, sizeof(sums_reg));
 
+        #pragma omp parallel for             \
+            reduction(argmax:city_argmax)    \
+            reduction(+:sums_reg[:128])      \
+            schedule(dynamic)
         for (int city = 0; city < c; city++) {
             const int i = reg * ngrades_per_region + city * a;
             const int j = reg * c + city;
