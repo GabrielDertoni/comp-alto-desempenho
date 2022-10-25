@@ -160,9 +160,10 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
         compute_statistics_from_sums(pref_sum, &min_reg[reg], &max_reg[reg],
                 &median_reg[reg], &mean_reg[reg], &stdev_reg[reg]);
 
-        if (reg_argmax.val < median_reg[reg]) {
+        merge_sums_128(sums_total, sums_reg);
+        if (reg_argmax.val < mean_reg[reg]) {
             reg_argmax.index = reg;
-            reg_argmax.val = median_reg[reg];
+            reg_argmax.val = mean_reg[reg];
         }
     }
 

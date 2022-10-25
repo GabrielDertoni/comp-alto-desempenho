@@ -139,8 +139,8 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
         compute_statistics_from_sums(sums_reg, &min_reg[reg], &max_reg[reg],
                                      &median_reg[reg], &mean_reg[reg], &stdev_reg[reg]);
 
-        if (best_reg_mean < median_reg[reg]) {
-            best_reg_mean = median_reg[reg];
+        if (best_reg_mean < mean_reg[reg]) {
+            best_reg_mean = mean_reg[reg];
             *best_reg = reg;
         }
 
