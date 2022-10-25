@@ -28,11 +28,6 @@ static inline void counting_sort_accum_freq(const int_fast8_t *restrict mat, int
     pref_sum(sums);
 }
 
-static inline void counting_sort_freq(const int *restrict mat, int *restrict freq, size_t mat_len) {
-    for (int i = 0; i < mat_len; i++)
-        freq[mat[i]]++;
-}
-
 const int* lower_bound_128(const int *first, int value) {
     first += 64 * (first[63] < value);
     first += 32 * (first[31] < value);
