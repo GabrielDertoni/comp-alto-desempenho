@@ -206,12 +206,12 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    clock_t start_clock = clock();
+    double start_time = omp_get_wtime();
     compute_all_statistics(mat, r, c, a, min_city, max_city, median_city, mean_city, stdev_city,
                                 min_reg, max_reg, median_reg, mean_reg, stdev_reg,
                                 &min_total, &max_total, &median_total, &mean_total, &stdev_total, &best_reg,
                                 &best_city_reg, &best_city);
-    clock_t time_taken = clock() - start_clock;
+    double time_taken = omp_get_wtime() - start_time;
 
 #ifndef PERF
     for (int reg = 0; reg < r; reg++) {
@@ -271,7 +271,7 @@ int main(int argc, char *argv[]) {
     *(volatile int*)&best_city;
 #endif
 
-    printf("Tempo de resposta sem considerar E/S, em segundos: %.03lfs\n", (double)time_taken / CLOCKS_PER_SEC);
+    printf("Tempo de resposta sem considerar E/S, em segundos: %.03lfs\n", time_taken);
 
     free(mat);
     free(min_city);
