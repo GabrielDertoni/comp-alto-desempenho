@@ -4,13 +4,14 @@
 #include <stdint.h>
 #include <time.h>
 #include <math.h>
+#include <omp.h>
 
 #define N_GRADES 101
 #define OPT_SUMS_SZ 128
 
 typedef int pref_sum_t[OPT_SUMS_SZ];
 
-void fill_random_vector(int *mat, int n) {
+void fill_random_vector(int_fast8_t *mat, int n) {
     for (int i = 0; i < n; i++)
         mat[i] = rand() % N_GRADES;
 }
@@ -20,7 +21,7 @@ static inline void pref_sum(int *sums) {
         sums[i] += sums[i-1];
 }
 
-static inline void counting_sort_accum_freq(const int *restrict mat, int *restrict sums, size_t mat_len) {
+static inline void counting_sort_accum_freq(const int_fast8_t *restrict mat, int *restrict sums, size_t mat_len) {
     for (int i = 0; i < mat_len; i++)
         sums[mat[i]]++;
 
@@ -75,8 +76,8 @@ static inline double median_from_sums_128(const pref_sum_t sums) {
     }
 }
 
-static inline void compute_statistics_from_sums(const int *restrict sums, int *restrict min,
-                                                int *restrict max, double *restrict median,
+static inline void compute_statistics_from_sums(const int *restrict sums, int_fast8_t *restrict min,
+                                                int_fast8_t *restrict max, double *restrict median,
                                                 double *restrict mean, double *restrict stdev) {
     const int n_occur = sums[N_GRADES-1];
     int total = 0;
@@ -95,17 +96,17 @@ static inline void compute_statistics_from_sums(const int *restrict sums, int *r
     *stdev = sqrt((double)total_sq / (double)n_occur - m * m);
 }
 
-void compute_all_statistics(int *mat, int r, int c, int a,
+void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
                             // City
-                            int *restrict min_city, int *restrict max_city,
+                            int_fast8_t *restrict min_city, int_fast8_t *restrict max_city,
                             double *restrict median_city, double *restrict mean_city,
                             double *restrict stdev_city,
                             // Region
-                            int *restrict min_reg, int *restrict max_reg,
+                            int_fast8_t *restrict min_reg, int_fast8_t *restrict max_reg,
                             double *restrict median_reg, double *restrict mean_reg,
                             double *restrict stdev_reg,
                             // Brasil
-                            int *restrict min_total, int *restrict max_total,
+                            int_fast8_t *restrict min_total, int_fast8_t *restrict max_total,
                             double *restrict median_total, double *restrict mean_total,
                             double *restrict stdev_total, int *restrict best_reg,
                             int *restrict best_city_reg, int *restrict best_city) {
@@ -158,9 +159,10 @@ void compute_all_statistics(int *mat, int r, int c, int a,
 
 int main(int argc, char *argv[]) {
     // Leitura dos dados de entrada
-    int r, c, a, seed;
+    size_t r, c, a;
+    int seed;
 #ifndef PERF
-    if (!scanf("%d %d %d %d", &r, &c, &a, &seed)) return 1;
+    if (!scanf("%zu %zu %zu %d", &r, &c, &a, &seed)) return 1;
 #else
     if (argc < 5) return 1;
     r = atoi(argv[1]);
@@ -172,24 +174,24 @@ int main(int argc, char *argv[]) {
     const size_t n = r * c * a;
     const size_t ncity = r * c;
     const size_t ngrades_per_region = c * a;
-    int* mat = (int*)malloc(n * sizeof(int));
+    int_fast8_t* mat = (int_fast8_t*)malloc(n * sizeof(int_fast8_t));
     // City
-    int* min_city = (int*)malloc(ncity * sizeof(int));
-    int* max_city = (int*)malloc(ncity * sizeof(int));
+    int_fast8_t* min_city = (int_fast8_t*)malloc(ncity * sizeof(int_fast8_t));
+    int_fast8_t* max_city = (int_fast8_t*)malloc(ncity * sizeof(int_fast8_t));
     double* median_city = (double*)malloc(ncity * sizeof(double));
     double* mean_city = (double*)malloc(ncity * sizeof(double));
     double* stdev_city = (double*)malloc(ncity * sizeof(double));
 
     // Region
-    int* min_reg = (int*)malloc(r * sizeof(int));
-    int* max_reg = (int*)malloc(r * sizeof(int));
+    int_fast8_t* min_reg = (int_fast8_t*)malloc(r * sizeof(int_fast8_t));
+    int_fast8_t* max_reg = (int_fast8_t*)malloc(r * sizeof(int_fast8_t));
     double* median_reg = (double*)malloc(r * sizeof(double));
     double* mean_reg = (double*)malloc(r * sizeof(double));
     double* stdev_reg = (double*)malloc(r * sizeof(double));
 
     // Brasil
     int best_reg, best_city_reg, best_city;
-    int min_total, max_total;
+    int_fast8_t min_total, max_total;
     double median_total, mean_total, stdev_total;
 
     srand(seed);
@@ -249,23 +251,23 @@ int main(int argc, char *argv[]) {
     // Use variables to prevent them beeing optimized out
 
     // City
-    *(volatile int*)min_city;
-    *(volatile int*)max_city;
+    *(volatile int_fast8_t*)min_city;
+    *(volatile int_fast8_t*)max_city;
     *(volatile double*)median_city;
     *(volatile double*)mean_city;
     *(volatile double*)stdev_city;
 
     // Region
-    *(volatile int*)min_reg;
-    *(volatile int*)max_reg;
+    *(volatile int_fast8_t*)min_reg;
+    *(volatile int_fast8_t*)max_reg;
     *(volatile double*)median_reg;
     *(volatile double*)mean_reg;
     *(volatile double*)stdev_reg,
 
     // Brasil
-    *(volatile int*)mat;
-    *(volatile int*)&min_total;
-    *(volatile int*)&max_total;
+    *(volatile int_fast8_t*)mat;
+    *(volatile int_fast8_t*)&min_total;
+    *(volatile int_fast8_t*)&max_total;
     *(volatile double*)&median_total;
     *(volatile double*)&mean_total;
     *(volatile double*)&stdev_total;
