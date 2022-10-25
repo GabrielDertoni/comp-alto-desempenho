@@ -6,61 +6,71 @@
 #include <math.h>
 #include <omp.h>
 
+// Número de notas diferentes
 #define N_GRADES 101
+
+// Número ótimo para ser colocado num vetor de frequencias de notas. Esse número precisa ser no
+// mínimo igual a `N_GRADES`. No caso, o valor de 128 nos permite otimizar algumas funções
+// auxiliares.
 #define OPT_SUMS_SZ 128
 
+// Tipo utilizado para variáveis que armazenam somas de prefixo e/out frequencias de notas.
 typedef int pref_sum_t[OPT_SUMS_SZ];
 
+// Preenche um vetor de valores aleatórios.
 void fill_random_vector(int_fast8_t *mat, int n) {
     for (int i = 0; i < n; i++)
         mat[i] = rand() % N_GRADES;
 }
 
-static inline void pref_sum(int *sums) {
+// Faz uma soma de prefixo no vetor `sums`, inplace.
+static inline void pref_sum(pref_sum_t sums) {
     for (int i = 1; i < OPT_SUMS_SZ; i++)
         sums[i] += sums[i-1];
 }
 
-static inline void counting_sort_accum_freq(const int_fast8_t *restrict mat, int *restrict sums, size_t mat_len) {
+// Conta o número de ocorrências e armazena no vetor de frequencias `freq`.
+static inline void count_freq(const int_fast8_t *restrict mat, pref_sum_t freq, size_t mat_len) {
     for (int i = 0; i < mat_len; i++)
-        sums[mat[i]]++;
-
-    pref_sum(sums);
+        freq[mat[i]]++;
 }
 
-const int* lower_bound_128(const int *first, int value) {
-    first += 64 * (first[63] < value);
-    first += 32 * (first[31] < value);
-    first += 16 * (first[15] < value);
-    first +=  8 * (first[ 7] < value);
-    first +=  4 * (first[ 3] < value);
-    first +=  2 * (first[ 1] < value);
-    first +=  1 * (first[ 0] < value);
-    first +=  1 * (first[ 0] < value);
-    return first;
+// Retorna um ponteiro que aponta dentro de `sums` ou no elemento seguinte. O ponteiro retornado
+// aponta para o primeiro elemento maior ou igual a `value` que se econtra no vetor ordenado
+// `sums`. Caso todos os elementos de `sums` sejam menores que `value`, retorna `&sums[128]`.
+const int* lower_bound_128(const pref_sum_t sums, int value) {
+    // Essa função pôde ser otimizada agressivamente por sabermos o tamanho do vetor `sums`. Dessa
+    // forma, podemos fazer unroll de todos os loops e remover branches. Como 128 é uma potência de
+    // 2, o algoritmo (de busca binária) sempre levará exatamente o mesmo número de iterações.
+    sums += 64 * (sums[63] < value);
+    sums += 32 * (sums[31] < value);
+    sums += 16 * (sums[15] < value);
+    sums +=  8 * (sums[ 7] < value);
+    sums +=  4 * (sums[ 3] < value);
+    sums +=  2 * (sums[ 1] < value);
+    sums +=  1 * (sums[ 0] < value);
+    sums +=  1 * (sums[ 0] < value);
+    return sums;
 }
 
-// Source: https://en.cppreference.com/w/cpp/algorithm/upper_bound
-const int* upper_bound(const int* first, size_t n, int value) {
-    const int* it;
-    size_t step;
-
-    while (n > 0) {
-        it = first;
-        step = n / 2;
-        it += step;
-        if (value >= *it) {
-            first = ++it;
-            n -= step + 1;
-        }
-        else
-            n = step;
-    }
-    return first;
+// Retorna um ponteiro que aponta dentro de `sums` ou no elemento seguinte. O ponteiro retornado
+// aponta para o primeiro elemento maior que `value` que se econtra no vetor ordenado `sums`. Caso
+// todos os elementos de `sums` sejam menores ou iguais a `value`, retorna `&sums[128]`.
+const int* upper_bound_128(const pref_sum_t sums, int value) {
+    sums += 64 * (sums[63] <= value);
+    sums += 32 * (sums[31] <= value);
+    sums += 16 * (sums[15] <= value);
+    sums +=  8 * (sums[ 7] <= value);
+    sums +=  4 * (sums[ 3] <= value);
+    sums +=  2 * (sums[ 1] <= value);
+    sums +=  1 * (sums[ 0] <= value);
+    sums +=  1 * (sums[ 0] <= value);
+    return sums;
 }
 
+// Obtém a mediana a partir de uma soma de prefixo das frequencias das notas.
 static inline double median_from_sums_128(const pref_sum_t sums) {
-    int count = sums[127];
+    int count = sums[OPT_SUMS_SZ-1];
     if (count % 2 == 0) {
         const int median_up = lower_bound_128(sums, count/2) - sums;
         const int median_down = lower_bound_128(sums, (count/2)+1) - sums;
@@ -71,7 +81,9 @@ static inline double median_from_sums_128(const pref_sum_t sums) {
     }
 }
 
-static inline void compute_statistics_from_sums(const int *restrict sums, int_fast8_t *restrict min,
+// Computa estatísticas de mínimo, máximo, mediana, média e desvio padrão a partir de uma soma de
+// prefixo das frequencias das notas.
+static inline void compute_statistics_from_sums(const pref_sum_t sums, int_fast8_t *restrict min,
                                                 int_fast8_t *restrict max, double *restrict median,
                                                 double *restrict mean, double *restrict stdev) {
     const int n_occur = sums[N_GRADES-1];
@@ -83,7 +95,7 @@ static inline void compute_statistics_from_sums(const int *restrict sums, int_fa
         total_sq += count * i * i;
     }
 
-    *min = upper_bound(sums, N_GRADES, 0) - sums;
+    *min = upper_bound_128(sums, 0) - sums;
     *max = lower_bound_128(sums, n_occur) - sums;
     *median = median_from_sums_128(sums);
     const double m = (double)total / (double)n_occur;
@@ -121,7 +133,8 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
 
             pref_sum_t sums;
             __builtin_memset(sums, 0, sizeof(sums));
-            counting_sort_accum_freq(mat + i, sums, a);
+            count_freq(mat + i, sums, a);
+            pref_sum(sums);
 
             compute_statistics_from_sums(sums, &min_city[j], &max_city[j],
                                          &median_city[j], &mean_city[j], &stdev_city[j]);

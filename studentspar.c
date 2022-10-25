@@ -2,13 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <time.h>
 #include <math.h>
 #include <omp.h>
 
-#include <unistd.h>
-
+// Número de notas diferentes que podem ter
 #define N_GRADES 101
+// 
 #define OPT_SUMS_SZ 128
 
 typedef int pref_sum_t[OPT_SUMS_SZ];
@@ -57,22 +56,15 @@ const int* lower_bound_128(const int *first, int value) {
     return first;
 }
 
-// Source: https://en.cppreference.com/w/cpp/algorithm/upper_bound
-const int* upper_bound(const int* first, size_t n, int value) {
-    const int* it;
-    size_t step;
-
-    while (n > 0) {
-        it = first;
-        step = n / 2;
-        it += step;
-        if (value >= *it) {
-            first = ++it;
-            n -= step + 1;
-        }
-        else
-            n = step;
-    }
+const int* upper_bound_128(const int *first, int value) {
+    first += 64 * (first[63] <= value);
+    first += 32 * (first[31] <= value);
+    first += 16 * (first[15] <= value);
+    first +=  8 * (first[ 7] <= value);
+    first +=  4 * (first[ 3] <= value);
+    first +=  2 * (first[ 1] <= value);
+    first +=  1 * (first[ 0] <= value);
+    first +=  1 * (first[ 0] <= value);
     return first;
 }
 
@@ -100,7 +92,7 @@ static inline void compute_statistics_from_sums(const int *restrict sums, int_fa
         total_sq += count * i * i;
     }
 
-    *min = upper_bound(sums, N_GRADES, 0) - sums;
+    *min = upper_bound_128(sums, 0) - sums;
     *max = lower_bound_128(sums, n_occur) - sums;
     *median = median_from_sums_128(sums);
     const double m = (double)total / (double)n_occur;
@@ -145,7 +137,8 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
         #pragma omp parallel for             \
             reduction(argmax:city_argmax)    \
             reduction(+:sums_reg[:128])      \
-            schedule(dynamic)
+            schedule(dynamic)                \
+            if(t > r)
         for (int city = 0; city < c; city++) {
             const int i = reg * ngrades_per_region + city * a;
             const int j = reg * c + city;

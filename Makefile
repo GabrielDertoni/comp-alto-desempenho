@@ -13,4 +13,6 @@ studentsseq: studentsseq.c
 studentspar: studentspar.c
 	$(CC) $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+# seq $(nproc) | xargs -n 1 -I{} sh -c 'echo 1000 1000 1000 | OMP_NUM_THREADS={} ./studentspar | tail -n 1'
+
 .PHONY: perf
