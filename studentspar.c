@@ -14,8 +14,8 @@
 typedef int pref_sum_t[OPT_SUMS_SZ];
 
 typedef struct {
-    int val;
-    int index;
+    double val;
+    size_t index;
 } indexed_val_t;
 
 #pragma omp declare reduction(argmax : indexed_val_t :         \
@@ -130,13 +130,11 @@ void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
     indexed_val_t reg_argmax  = { .index = -1, .val = -1 };
     indexed_val_t city_argmax = { .index = -1, .val = -1 };
 
-    int t = omp_get_num_threads();
-
     #pragma omp parallel for           \
         reduction(argmax:reg_argmax)   \
         reduction(argmax:city_argmax)  \
         reduction(+:sums_total[:128])    \
-        schedule(static, r/t)
+        schedule(dynamic)
     for (int reg = 0; reg < r; reg++) {
         pref_sum_t sums_reg;
         __builtin_memset(sums_reg, 0, sizeof(sums_reg));
