@@ -1,317 +1,307 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-#include <math.h>
 #include <omp.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-// Número de notas diferentes que podem ter
-#define N_GRADES 101
-// 
-#define OPT_SUMS_SZ 128
 
-typedef int pref_sum_t[OPT_SUMS_SZ];
+#define MAX_GRADE 100
+#define SUMS_SIZE 128 // Optmized for some algorithms, must be greater than MAX_GRADE + 1
 
-typedef struct {
-    double val;
+
+typedef int64_t Total;
+typedef int_fast8_t Grade;
+
+typedef int Sums[SUMS_SIZE];
+
+typedef struct Sizes {
+    size_t grades;
+    size_t cities;
+    size_t regions;
+    size_t students;
+} Sizes;
+
+typedef struct Best {
     size_t index;
-} indexed_val_t;
+    double average;
+} Best;
 
-#pragma omp declare reduction(argmax : indexed_val_t :         \
-        omp_out = omp_out.val > omp_in.val ? omp_out : omp_in) \
-        initializer (omp_priv=(omp_orig))
+typedef struct Stats {
+    Best best;
+    Grade* restrict min;
+    Grade* restrict max;
+    double* restrict stdev;
+    double* restrict median;
+    double* restrict average;
+} Stats;
 
-#pragma omp declare simd
-static inline void merge_sums_128(int *restrict sums, const int *restrict other) {
-    for (int i = 0; i < OPT_SUMS_SZ; i++)
-        sums[i] += other[i];
-}
+typedef struct Country {
+    Grade min;
+    Grade max;
+    double stdev;
+    double median;
+    double average;
+} Country;
 
-void fill_random_vector(int_fast8_t *mat, int n) {
-    for (int i = 0; i < n; i++)
-        mat[i] = rand() % N_GRADES;
-}
 
-#pragma omp declare simd
-static inline void pref_sum(int *sums) {
-    for (int i = 1; i < OPT_SUMS_SZ; i++)
-        sums[i] += sums[i-1];
-}
+#define zero_sums(sums) __builtin_memset(sums, 0, SUMS_SIZE * sizeof(int))
+#pragma omp declare reduction(best: Best: omp_out = omp_out.average > omp_in.average ? omp_out : omp_in) initializer (omp_priv = (omp_orig)) // Reduction for best city and region
 
-#pragma omp declare simd
-static inline void counting_sort_accum_freq(const int_fast8_t *restrict mat, int *restrict sums, size_t mat_len) {
-    for (int i = 0; i < mat_len; i++)
-        sums[mat[i]]++;
 
-    pref_sum(sums);
-}
+static inline void free_stats(Stats* stats);
+static inline Stats allocate_stats(size_t size);
+static inline void merge_sums(const Sums merged, Sums output);
+static inline Grade* random_grades(unsigned seed, size_t number_grades);
+static inline void calculate_sums(const Grade* grades, size_t size, Sums output);
+static inline void print_results(double time_taken, const Sizes* sizes, const Stats* restrict cities, const Stats* restrict regions, const Country* country);
+static inline void calculate_stats(const Sums sums, Grade* restrict min, Grade* restrict max, double* restrict median, double* restrict average, double*  restrict stdev);
 
-#pragma omp declare simd
-const int* lower_bound_128(const int *first, int value) {
-    first += 64 * (first[63] < value);
-    first += 32 * (first[31] < value);
-    first += 16 * (first[15] < value);
-    first +=  8 * (first[ 7] < value);
-    first +=  4 * (first[ 3] < value);
-    first +=  2 * (first[ 1] < value);
-    first +=  1 * (first[ 0] < value);
-    first +=  1 * (first[ 0] < value);
-    return first;
-}
 
-#pragma omp declare simd
-const int* upper_bound_128(const int *first, int value) {
-    first += 64 * (first[63] <= value);
-    first += 32 * (first[31] <= value);
-    first += 16 * (first[15] <= value);
-    first +=  8 * (first[ 7] <= value);
-    first +=  4 * (first[ 3] <= value);
-    first +=  2 * (first[ 1] <= value);
-    first +=  1 * (first[ 0] <= value);
-    first +=  1 * (first[ 0] <= value);
-    return first;
-}
+static inline void compute(const Grade* grades, const Sizes* sizes, Stats* restrict cities, Stats* restrict regions, Country* country) {
+    Sums country_sums;
+    zero_sums(country_sums);
 
-#pragma omp declare simd
-static inline double median_from_sums_128(const pref_sum_t sums) {
-    int count = sums[127];
-    if (count % 2 == 0) {
-        const int median_up = lower_bound_128(sums, count/2) - sums;
-        const int median_down = lower_bound_128(sums, (count/2)+1) - sums;
-        return (double)(median_down + median_up) / 2.0;
-    } else {
-        const int median = lower_bound_128(sums, count/2) - sums;
-        return (double)median;
-    }
-}
+    Best best_city = (Best){ .index = 0, .average = 0.0 };
+    Best best_region  = (Best){ .index = 0, .average = 0.0 };
 
-#pragma omp declare simd
-static inline void compute_statistics_from_sums(const int *restrict sums, int_fast8_t *restrict min,
-                                                int_fast8_t *restrict max, double *restrict median,
-                                                double *restrict mean, double *restrict stdev) {
-    const int n_occur = sums[N_GRADES-1];
-    int64_t total = 0;
-    int64_t total_sq = 0;
-    for (size_t i = 1; i < N_GRADES; i++) {
-        int count = sums[i] - sums[i-1];
-        total += count * i;
-        total_sq += count * i * i;
-    }
+    const int threads = omp_get_max_threads();
 
-    *min = upper_bound_128(sums, 0) - sums;
-    *max = lower_bound_128(sums, n_occur) - sums;
-    *median = median_from_sums_128(sums);
-    const double m = (double)total / (double)n_occur;
-    *mean = m;
-    *stdev = sqrt((double)total_sq / (double)n_occur - m * m);
-}
+    #pragma omp parallel for if(threads <= sizes->regions) schedule(dynamic) reduction(best: best_city) reduction(best: best_region) reduction(+: country_sums[:SUMS_SIZE])
+    for (size_t i = 0; i < sizes->regions; i++) {
+        Sums region_sums;
+        zero_sums(region_sums);
 
-void compute_all_statistics(const int_fast8_t *mat, int r, int c, int a,
-                            // City
-                            int_fast8_t *restrict min_city, int_fast8_t *restrict max_city,
-                            double *restrict median_city, double *restrict mean_city,
-                            double *restrict stdev_city,
-                            // Region
-                            int_fast8_t *restrict min_reg, int_fast8_t *restrict max_reg,
-                            double *restrict median_reg, double *restrict mean_reg,
-                            double *restrict stdev_reg,
-                            // Brasil
-                            int_fast8_t *restrict min_total, int_fast8_t *restrict max_total,
-                            double *restrict median_total, double *restrict mean_total,
-                            double *restrict stdev_total, int *restrict best_reg,
-                            int *restrict best_city_reg, int *restrict best_city) {
-    const size_t ngrades_per_region = c * a;
+        #pragma omp parallel for if(threads > sizes->regions) schedule(dynamic) reduction(best: best_city) reduction(+: region_sums[:SUMS_SIZE])
+        for (size_t j = 0; j < sizes->cities; j++) {
+            const size_t city = i * sizes->cities + j;
 
-    pref_sum_t sums_total;
-    __builtin_memset(sums_total, 0, sizeof(sums_total));
+            Sums city_sums;
+            zero_sums(city_sums);
 
-    indexed_val_t reg_argmax  = { .index = -1, .val = -1 };
-    indexed_val_t city_argmax = { .index = -1, .val = -1 };
+            calculate_sums(grades + i * sizes->cities * sizes->students + j * sizes->students, sizes->students, city_sums);
+            calculate_stats(city_sums, &cities->min[city], &cities->max[city], &cities->median[city], &cities->average[city], &cities->stdev[city]);
 
-    int t = omp_get_max_threads();
+            merge_sums(city_sums, region_sums);
 
-    #pragma omp parallel for             \
-        reduction(argmax:reg_argmax)     \
-        reduction(argmax:city_argmax)    \
-        reduction(+:sums_total[:128])    \
-        schedule(dynamic)                \
-        if(t <= r)
-    for (int reg = 0; reg < r; reg++) {
-        pref_sum_t sums_reg;
-        __builtin_memset(sums_reg, 0, sizeof(sums_reg));
-
-        #pragma omp parallel for             \
-            reduction(argmax:city_argmax)    \
-            reduction(+:sums_reg[:128])      \
-            schedule(dynamic)                \
-            if(t > r)
-        for (int city = 0; city < c; city++) {
-            const int i = reg * ngrades_per_region + city * a;
-            const int j = reg * c + city;
-
-            pref_sum_t sums;
-            __builtin_memset(sums, 0, sizeof(sums));
-            counting_sort_accum_freq(mat + i, sums, a);
-
-            compute_statistics_from_sums(sums, &min_city[j], &max_city[j],
-                                         &median_city[j], &mean_city[j], &stdev_city[j]);
-
-            merge_sums_128(sums_reg, sums);
-            if (city_argmax.val < mean_city[j]) {
-                city_argmax.index = j;
-                city_argmax.val = mean_city[j];
+            if (cities->average[city] > best_city.average) {
+                best_city = (Best){ .index = city, .average = cities->average[city] };
             }
         }
 
-        compute_statistics_from_sums(sums_reg, &min_reg[reg], &max_reg[reg],
-                                     &median_reg[reg], &mean_reg[reg], &stdev_reg[reg]);
+        calculate_stats(region_sums, &regions->min[i], &regions->max[i], &regions->median[i], &regions->average[i], &regions->stdev[i]);
+        merge_sums(region_sums, country_sums);
 
-        merge_sums_128(sums_total, sums_reg);
-        if (reg_argmax.val < mean_reg[reg]) {
-            reg_argmax.index = reg;
-            reg_argmax.val = mean_reg[reg];
+        if (regions->average[i] > best_region.average) {
+            best_region = (Best){ .index = i, .average = regions->average[i] };
         }
     }
 
-    compute_statistics_from_sums(sums_total, min_total, max_total,
-                                 median_total, mean_total, stdev_total);
+    calculate_stats(country_sums, &country->min, &country->max, &country->median, &country->average, &country->stdev);
 
-    *best_reg = reg_argmax.index;
-    *best_city_reg = city_argmax.index / c;
-    *best_city = city_argmax.index % c;
+    cities->best = best_city;
+    regions->best = best_region;
 }
 
-int main(int argc, char *argv[]) {
-    // Leitura dos dados de entrada
-    size_t r, c, a;
-    int seed;
-#ifndef PERF
-    if (!scanf("%zu %zu %zu %d", &r, &c, &a, &seed)) return 1;
-#else
-    if (argc < 5) return 1;
-    r = atoi(argv[1]);
-    c = atoi(argv[2]);
-    a = atoi(argv[3]);
-    seed = atoi(argv[4]);
-#endif
+int main() {
+    Sizes sizes;
+    unsigned seed;
 
-    const size_t n = r * c * a;
-    const size_t ncity = r * c;
-    int_fast8_t* mat = (int_fast8_t*)malloc(n * sizeof(int_fast8_t));
-    // City
-    int_fast8_t* min_city = (int_fast8_t*)malloc(ncity * sizeof(int_fast8_t));
-    int_fast8_t* max_city = (int_fast8_t*)malloc(ncity * sizeof(int_fast8_t));
-    double* median_city = (double*)malloc(ncity * sizeof(double));
-    double* mean_city = (double*)malloc(ncity * sizeof(double));
-    double* stdev_city = (double*)malloc(ncity * sizeof(double));
-
-    // Region
-    int_fast8_t* min_reg = (int_fast8_t*)malloc(r * sizeof(int_fast8_t));
-    int_fast8_t* max_reg = (int_fast8_t*)malloc(r * sizeof(int_fast8_t));
-    double* median_reg = (double*)malloc(r * sizeof(double));
-    double* mean_reg = (double*)malloc(r * sizeof(double));
-    double* stdev_reg = (double*)malloc(r * sizeof(double));
-
-    // Brasil
-    int best_reg, best_city_reg, best_city;
-    int_fast8_t min_total, max_total;
-    double median_total, mean_total, stdev_total;
-
-    srand(seed);
-    fill_random_vector(mat, n);
-
-#ifdef DEBUG
-    for (int reg = 0; reg < r; reg++) {
-        printf("Região %d\n", reg);
-        for (int city = 0; city < c; city++) {
-            for (int grade = 0; grade < a; grade++) {
-                const int i = reg * ngrades_per_region + city * a + grade;
-                printf("%d ", mat[i]);
-            }
-            printf("\n");
-        }
-        printf("\n");
+    if (scanf("%zu %zu %zu %u", &sizes.regions, &sizes.cities, &sizes.students, &seed) != 4) {
+        fputs("Failed to read input", stderr);
+        exit(EXIT_FAILURE);
     }
-#endif
+
+    sizes.grades = sizes.regions * sizes.cities * sizes.students;
+    Grade* grades = random_grades(seed, sizes.grades);
+
+    Country country;
+    Stats regions = allocate_stats(sizes.regions);
+    Stats cities = allocate_stats(sizes.regions * sizes.cities);
 
     double start_time = omp_get_wtime();
-    compute_all_statistics(mat, r, c, a, min_city, max_city, median_city, mean_city, stdev_city,
-                                min_reg, max_reg, median_reg, mean_reg, stdev_reg,
-                                &min_total, &max_total, &median_total, &mean_total, &stdev_total, &best_reg,
-                                &best_city_reg, &best_city);
-    double time_taken = omp_get_wtime() - start_time;
+    compute(grades, &sizes, &cities, &regions, &country);
 
-#ifndef PERF
-    for (int reg = 0; reg < r; reg++) {
-        for (int city = 0; city < c; city++) {
-            int i = reg * c + city;
+    print_results(omp_get_wtime() - start_time, &sizes, &cities, &regions, &country);
+
+    free(grades);
+    free_stats(&cities);
+    free_stats(&regions);
+
+    return EXIT_SUCCESS;
+}
+
+
+// Calculate
+
+const int* lower_bound(const int* begin, int value) { // Only works with size 125
+    begin += 64 * (begin[63] < value);
+    begin += 32 * (begin[31] < value);
+    begin += 16 * (begin[15] < value);
+    begin +=  8 * (begin[ 7] < value);
+    begin +=  4 * (begin[ 3] < value);
+    begin +=  2 * (begin[ 1] < value);
+    begin +=  1 * (begin[ 0] < value);
+    begin +=  1 * (begin[ 0] < value);
+
+    return begin;
+}
+
+const int* upper_bound(const int* begin, int value) { // Only works with size 125
+    begin += 64 * (begin[63] <= value);
+    begin += 32 * (begin[31] <= value);
+    begin += 16 * (begin[15] <= value);
+    begin +=  8 * (begin[ 7] <= value);
+    begin +=  4 * (begin[ 3] <= value);
+    begin +=  2 * (begin[ 1] <= value);
+    begin +=  1 * (begin[ 0] <= value);
+    begin +=  1 * (begin[ 0] <= value);
+
+    return begin;
+}
+
+static inline size_t distance(const int* begin, const int* it) {
+    return it - begin;
+}
+
+static inline void calculate_totals(const Sums sums, Total* total, Total* total_sq) {
+    *total = *total_sq = 0;
+
+    for (size_t i = 1; i < SUMS_SIZE; i++) {
+        size_t count = sums[i] - sums[i - 1];
+
+        *total += count * i;
+        *total_sq += count * i * i;
+    }
+}
+
+static inline double calculate_median(const Sums sums, size_t size) {
+    size_t half_size = size / 2;
+
+    if (size % 2 == 0) { // Even
+        const size_t up = distance(sums, lower_bound(sums, half_size));
+        const size_t down = distance(sums, lower_bound(sums, half_size + 1));
+
+        return (up + down) / 2.0;
+    }
+
+    return distance(sums, lower_bound(sums, half_size));
+}
+
+static inline void calculate_stats(const Sums sums, Grade* restrict min, Grade* restrict max, double* restrict median, double* restrict average, double* restrict stdev) {
+    size_t size = sums[MAX_GRADE];
+
+    Total total, total_sq;
+    calculate_totals(sums, &total, &total_sq);
+
+    *min = distance(sums, upper_bound(sums, 0));
+    *max = distance(sums, lower_bound(sums, size));
+
+    *median = calculate_median(sums, size);
+
+    *average = (double)total / size;
+    *stdev = sqrt((double)total_sq / size - *average * *average);
+}
+
+
+// Sums
+
+static inline void calculate_sums(const Grade* grades, size_t size, Sums output) {
+    for (size_t i = 0; i < size; i++) { // Count
+        output[grades[i]]++;
+    }
+
+    for (size_t i = 1; i < SUMS_SIZE; i++) { // Prefix Sum
+        output[i] += output[i - 1];
+    }
+}
+
+static inline void merge_sums(const Sums merged, Sums output) {
+    #pragma omp simd
+    for (size_t i = 0; i < SUMS_SIZE; i++) {
+        output[i] += merged[i];
+    }
+}
+
+
+// Grades
+
+static inline Grade* random_grades(unsigned seed, size_t number_grades) {
+    Grade* grades = malloc(number_grades * sizeof(Grade));
+    srand(seed);
+
+    if (grades == NULL) {
+        fputs("Failed to allocate memory", stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    for (size_t i = 0; i < number_grades; i++) {
+        grades[i] = rand() % (MAX_GRADE + 1);
+    }
+
+    return grades;
+}
+
+
+// Stats
+
+static inline Stats allocate_stats(size_t size) {
+    Stats stats;
+
+    if (
+        (stats.min     = malloc(size * sizeof(Grade)))  == NULL ||
+        (stats.max     = malloc(size * sizeof(Grade)))  == NULL ||
+        (stats.stdev   = malloc(size * sizeof(double))) == NULL ||
+        (stats.median  = malloc(size * sizeof(double))) == NULL ||
+        (stats.average = malloc(size * sizeof(double))) == NULL
+    ) {
+        fputs("Failed to allocate memory", stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    return stats;
+}
+
+static inline void free_stats(Stats* stats) {
+    free(stats->min);
+    free(stats->max);
+    free(stats->stdev);
+    free(stats->median);
+    free(stats->average);
+}
+
+
+// Results
+
+static inline void print_results(double time_taken, const Sizes* sizes, const Stats* restrict cities, const Stats* restrict regions, const Country* country) {
+    for (size_t i = 0; i < sizes->regions; i++) {
+        for (size_t j = 0; j < sizes->cities; j++) {
+            const size_t city = i * sizes->cities + j;
+
             printf(
-                "Reg %d - Cid %d: menor: %d, maior: %d, mediana: %.02lf, média: %.02lf e DP: %.02lf\n",
-                reg, city, min_city[i], max_city[i], median_city[i], mean_city[i], stdev_city[i]
+                "Reg %zu - Cid %zu: menor: %d, maior: %d, mediana: %.02lf, média: %.02lf e DP: %.02lf\n",
+                i, j, cities->min[city], cities->max[city], cities->median[city], cities->average[city], cities->stdev[city]
             );
         }
-        printf("\n");
+        puts("");
     }
 
-    for (int reg = 0; reg < r; reg++) {
+    for (size_t i = 0; i < sizes->regions; i++) {
         printf(
-            "Reg %d: menor: %d, maior: %d, mediana: %.02lf, média: %.02lf e DP: %.02lf\n",
-            reg, min_reg[reg], max_reg[reg], median_reg[reg], mean_reg[reg], stdev_reg[reg]
+            "Reg %zu: menor: %d, maior: %d, mediana: %.02lf, média: %.02lf e DP: %.02lf\n",
+            i, regions->min[i], regions->max[i], regions->median[i], regions->average[i], regions->stdev[i]
         );
     }
-    printf("\n");
+    puts("");
 
     printf(
         "Brasil: menor: %d, maior: %d, mediana: %.02lf, média: %.02lf e DP: %.02lf\n",
-        min_total, max_total, median_total, mean_total, stdev_total
+        country->min, country->max, country->median, country->average, country->stdev
     );
-    printf("\n");
+    puts("");
 
-    printf("Melhor região: Região %d\n", best_reg);
-    printf("Melhor cidade: Região %d, Cidade: %d\n", best_city_reg, best_city);
-    printf("\n");
-#else
-    // Use variables to prevent them beeing optimized out
-
-    // City
-    *(volatile int_fast8_t*)min_city;
-    *(volatile int_fast8_t*)max_city;
-    *(volatile double*)median_city;
-    *(volatile double*)mean_city;
-    *(volatile double*)stdev_city;
-
-    // Region
-    *(volatile int_fast8_t*)min_reg;
-    *(volatile int_fast8_t*)max_reg;
-    *(volatile double*)median_reg;
-    *(volatile double*)mean_reg;
-    *(volatile double*)stdev_reg,
-
-    // Brasil
-    *(volatile int_fast8_t*)mat;
-    *(volatile int_fast8_t*)&min_total;
-    *(volatile int_fast8_t*)&max_total;
-    *(volatile double*)&median_total;
-    *(volatile double*)&mean_total;
-    *(volatile double*)&stdev_total;
-    *(volatile int*)&best_reg;
-    *(volatile int*)&best_city_reg;
-    *(volatile int*)&best_city;
-#endif
+    printf("Melhor região: Região %zu\n", regions->best.index);
+    printf("Melhor cidade: Região %zu, Cidade: %zu\n", cities->best.index / sizes->cities, cities->best.index % sizes->cities);
+    puts("");
 
     printf("Tempo de resposta sem considerar E/S, em segundos: %.03lfs\n", time_taken);
-
-    free(mat);
-    free(min_city);
-    free(max_city);
-    free(median_city);
-    free(mean_city);
-    free(stdev_city);
-    free(min_reg);
-    free(max_reg);
-    free(median_reg);
-    free(mean_reg);
-    free(stdev_reg);
-
-    return 0;
 }

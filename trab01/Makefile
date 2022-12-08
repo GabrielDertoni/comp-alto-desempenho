@@ -1,18 +1,21 @@
 CC := gcc
-OMPFLAGS := -fopenmp
-CFLAGS := -Wpedantic -Wall
-FASTFLAGS := -Ofast -mavx2
-DBGFLAGS := -fsanitize=address -g -DDEBUG
+RM := rm -f
 LDFLAGS := -lm
+CFLAGS := -Ofast -fopenmp -Wall -Werror -pedantic
 
-all: studentsseq studentspar
 
-studentsseq: studentsseq.c
-	$(CC) $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+all:
+	@$(CC) studentsseq.c -o studentsseq $(CFLAGS) $(LDFLAGS)
+	@$(CC) studentspar.c -o studentspar $(CFLAGS) $(LDFLAGS)
 
-studentspar: studentspar.c
-	$(CC) $(FASTFLAGS) $(OMPFLAGS) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+seq:
+	@./studentsseq
 
-# seq $(nproc) | xargs -n 1 -I{} sh -c 'echo 1000 1000 1000 | OMP_NUM_THREADS={} ./studentspar | tail -n 1'
+par:
+	@./studentspar
 
-.PHONY: perf
+clean:
+	@$(RM) studentsseq studentspar
+
+
+.PHONY: all clean
