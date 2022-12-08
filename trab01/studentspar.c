@@ -21,8 +21,8 @@ typedef struct {
         omp_out = omp_out.val > omp_in.val ? omp_out : omp_in) \
         initializer (omp_priv=(omp_orig))
 
+#pragma omp declare simd
 static inline void merge_sums_128(int *restrict sums, const int *restrict other) {
-    #pragma omp simd
     for (int i = 0; i < OPT_SUMS_SZ; i++)
         sums[i] += other[i];
 }
@@ -32,11 +32,13 @@ void fill_random_vector(int_fast8_t *mat, int n) {
         mat[i] = rand() % N_GRADES;
 }
 
+#pragma omp declare simd
 static inline void pref_sum(int *sums) {
     for (int i = 1; i < OPT_SUMS_SZ; i++)
         sums[i] += sums[i-1];
 }
 
+#pragma omp declare simd
 static inline void counting_sort_accum_freq(const int_fast8_t *restrict mat, int *restrict sums, size_t mat_len) {
     for (int i = 0; i < mat_len; i++)
         sums[mat[i]]++;
@@ -44,6 +46,7 @@ static inline void counting_sort_accum_freq(const int_fast8_t *restrict mat, int
     pref_sum(sums);
 }
 
+#pragma omp declare simd
 const int* lower_bound_128(const int *first, int value) {
     first += 64 * (first[63] < value);
     first += 32 * (first[31] < value);
@@ -56,6 +59,7 @@ const int* lower_bound_128(const int *first, int value) {
     return first;
 }
 
+#pragma omp declare simd
 const int* upper_bound_128(const int *first, int value) {
     first += 64 * (first[63] <= value);
     first += 32 * (first[31] <= value);
@@ -68,6 +72,7 @@ const int* upper_bound_128(const int *first, int value) {
     return first;
 }
 
+#pragma omp declare simd
 static inline double median_from_sums_128(const pref_sum_t sums) {
     int count = sums[127];
     if (count % 2 == 0) {
@@ -80,6 +85,7 @@ static inline double median_from_sums_128(const pref_sum_t sums) {
     }
 }
 
+#pragma omp declare simd
 static inline void compute_statistics_from_sums(const int *restrict sums, int_fast8_t *restrict min,
                                                 int_fast8_t *restrict max, double *restrict median,
                                                 double *restrict mean, double *restrict stdev) {
@@ -191,7 +197,6 @@ int main(int argc, char *argv[]) {
 
     const size_t n = r * c * a;
     const size_t ncity = r * c;
-    const size_t ngrades_per_region = c * a;
     int_fast8_t* mat = (int_fast8_t*)malloc(n * sizeof(int_fast8_t));
     // City
     int_fast8_t* min_city = (int_fast8_t*)malloc(ncity * sizeof(int_fast8_t));
