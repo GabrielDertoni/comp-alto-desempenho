@@ -1,5 +1,6 @@
 CFLAGS += -Wall -Wextra -pedantic -O3
-PARAM = 13 42
+N ?= 13
+SEED ?= 42
 
 
 all:
@@ -7,10 +8,10 @@ all:
 	@mpicc pvc-par.c -o pvc-par $(CFLAGS)
 
 seq:
-	@./pvc-seq $(PARAM)
+	@./pvc-seq $(N) $(SEED)
 
 par:
-	@mpirun --hostfile host.txt pvc-par $(PARAM)
+	@mpirun --hostfile host.txt pvc-par $(N) $(SEED)
 
 clean:
 	@rm -f pvc-seq pvc-par
