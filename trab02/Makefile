@@ -1,6 +1,7 @@
 CFLAGS += -Wall -Wextra -pedantic -O3
 N ?= 13
 SEED ?= 42
+NP ?= 36
 
 
 all: pvc-seq pvc-par
@@ -9,7 +10,7 @@ seq: pvc-seq
 	@./pvc-seq $(N) $(SEED)
 
 par: pvc-par
-	@mpirun --hostfile host.txt pvc-par $(N) $(SEED)
+	@mpirun -np $(NP) --hostfile host.txt pvc-par $(N) $(SEED)
 
 pvc-seq: pvc-seq.c
 	@$(CC) pvc-seq.c -o pvc-seq $(CFLAGS)
