@@ -3,15 +3,19 @@ N ?= 13
 SEED ?= 42
 
 
-all:
-	@$(CC) pvc-seq.c -o pvc-seq $(CFLAGS)
-	@mpicc pvc-par.c -o pvc-par $(CFLAGS)
+all: pvc-seq pvc-par
 
-seq:
+seq: pvc-seq
 	@./pvc-seq $(N) $(SEED)
 
-par:
+par: pvc-par
 	@mpirun --hostfile host.txt pvc-par $(N) $(SEED)
+
+pvc-seq: pvc-seq.c
+	@$(CC) pvc-seq.c -o pvc-seq $(CFLAGS)
+
+pvc-par: pvc-par.c
+	@mpicc pvc-par.c -o pvc-par $(CFLAGS)
 
 clean:
 	@rm -f pvc-seq pvc-par
