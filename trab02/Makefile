@@ -1,7 +1,7 @@
 CFLAGS += -Wall -Wextra -pedantic -O3
-N ?= 13
 SEED ?= 42
 NP ?= 36
+N ?= 13
 
 
 all: pvc-seq pvc-par
